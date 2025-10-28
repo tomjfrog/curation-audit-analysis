@@ -37,12 +37,19 @@ jobs:
           JF_URL: ${{ secrets.JF_URL }}
           JF_USER: ${{ secrets.JF_USER }}
           JF_PASSWORD: ${{ secrets.JF_PASSWORD }}
-        run: python main.py | tee audit-output.txt
+        run: python main.py 2>&1 | tee audit-output.txt
 
+      - name: Debug - Show output
+        run: |
+          echo "First 100 lines of output:"
+          head -100 audit-output.txt
+          echo "---"
+          echo "Last 100 lines of output:"
+          tail -100 audit-output.txt
+          
       - name: Generate Markdown report
         run: |
           # Extract JSON report from output
-          JSON_REPORT=$(grep -A 1000 '^{' audit-output.txt | grep -m 1 '^{' || echo '{}')
           
           # Parse JSON and generate Markdown
           python << 'EOF'
@@ -55,7 +62,7 @@ jobs:
               content = f.read()
           
           # Find the JSON block by looking for the report structure
-          # We'll look for lines starting with '{' that contain "approved"
+          # We'll look for lines with '{' that contain "approved"
           lines = content.split('\n')
           json_started = False
           json_lines = []
@@ -63,10 +70,11 @@ jobs:
           
           for line in lines:
               stripped = line.strip()
-              # Start collecting when we see a line starting with '{' that has "approved" in it
-              if stripped.startswith('{') and '"approved"' in line and not json_started:
+              # Start collecting when we see a line with '{' that has "approved" (could be at any indentation)
+              if '{' in stripped and '"approved"' in stripped and not json_started:
                   json_started = True
                   brace_count = stripped.count('{') - stripped.count('}')
+                  json_lines.append(line.rstrip())
               elif json_started:
                   json_lines.append(line.rstrip())
                   brace_count += stripped.count('{') - stripped.count('}')
