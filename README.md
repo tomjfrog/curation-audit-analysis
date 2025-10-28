@@ -69,12 +69,37 @@ Alternatively, you can create a `.env` file (not recommended for passwords) or p
 
 ## Usage
 
+### Local Execution
+
 1. Set the required environment variables (see Configuration above)
 2. Run the script:
 
 ```bash
 python main.py
 ```
+
+### GitHub Actions CI/CD
+
+This repository includes a GitHub Actions workflow that can automatically run the audit analysis on a schedule or trigger.
+
+#### Setup
+
+1. Add the following secrets to your GitHub repository:
+   - `JF_URL`: Your JFrog instance URL
+   - `JF_USER`: Your JFrog username
+   - `JF_PASSWORD`: Your JFrog password or API key
+
+2. Go to **Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+
+3. The workflow will run automatically:
+   - **Daily at 2 AM UTC** (via schedule)
+   - **On manual trigger** (via workflow_dispatch)
+   - **On push to main/master** (when main.py changes)
+
+#### Accessing Results
+
+- **Console Output**: View the full output in the workflow run logs
+- **Job Summary**: View the formatted Markdown report in the job summary (top of the workflow run page)
 
 ## How It Works
 

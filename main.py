@@ -108,17 +108,21 @@ for event in blocked_events:
         policy_name = policy.get('policy_name', 'unknown')
         policy_counts[policy_name] += 1
 
+# Generate report data
+approved = total_action_counts.get('approved', 0)
+blocked_total = len(blocked_events)
+
 # Output policy counts as JSON to console
 print(now.isoformat(), 'blocked packages by policy:')
 print('# This report shows the count of blocked packages grouped by policy_name.')
 print('# blocked_total is the count of blocked packages.')
 print('# Each count represents how many times a policy blocked a package during the audit period.')
 print('# Note: Each package may be blocked by multiple policies, so blocked_total and the sum of policy counts will not match.')
-report = {
-    'approved': total_action_counts.get('approved', 0),
+print(json.dumps({
+    'approved': approved,
     'blocked': {
-        'blocked_total': len(blocked_events),
+        'blocked_total': blocked_total,
         **dict(policy_counts)
     }
-}
-print(json.dumps(report, indent=2))
+}, indent=2))
+

@@ -1,0 +1,113 @@
+name: Curation Audit Analysis
+
+on:
+  workflow_dispatch:  # Allows manual triggering
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'main.py'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    name: Generate Audit Report
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run curation audit analysis
+        id: audit
+        env:
+          JF_URL: ${{ secrets.JF_URL }}
+          JF_USER: ${{ secrets.JF_USER }}
+          JF_PASSWORD: ${{ secrets.JF_PASSWORD }}
+        run: python main.py | tee audit-output.txt
+
+      - name: Generate Markdown report
+        run: |
+          # Extract JSON report from output
+          JSON_REPORT=$(grep -A 1000 '^{' audit-output.txt | grep -m 1 '^{' || echo '{}')
+          
+          # Parse JSON and generate Markdown
+          python << 'EOF'
+          import json
+          import os
+          import sys
+          
+          # Read the JSON report from the output
+          with open('audit-output.txt', 'r') as f:
+              lines = f.readlines()
+          
+          # Find the JSON block
+          json_started = False
+          json_lines = []
+          for line in lines:
+              if line.strip().startswith('{') and not json_started:
+                  json_started = True
+                  json_lines.append(line.strip())
+              elif json_started and json_lines:
+                  json_lines.append(line.strip())
+                  if line.strip() == '}' or (line.strip().endswith('}') and len(json_lines) > 1):
+                      break
+          
+          if not json_lines:
+              print("No JSON report found")
+              sys.exit(1)
+          
+          try:
+              report = json.loads('\n'.join(json_lines))
+          except json.JSONDecodeError as e:
+              print(f"Failed to parse JSON: {e}")
+              sys.exit(1)
+          
+          approved = report.get('approved', 0)
+          blocked_total = report.get('blocked', {}).get('blocked_total', 0)
+          policies = {k: v for k, v in report.get('blocked', {}).items() if k != 'blocked_total'}
+          
+          # Generate Markdown
+          markdown = f"""# 📊 Curation Audit Report
+          
+          ## Summary
+          
+          - **Approved Packages**: {approved:,}
+          - **Blocked Packages**: {blocked_total:,}
+          
+          ## Blocked Packages by Policy
+          
+          | Policy Name | Count |
+          |-------------|-------|
+          """
+          
+          # Sort policies by count descending
+          sorted_policies = sorted(policies.items(), key=lambda x: x[1], reverse=True)
+          for policy_name, count in sorted_policies:
+              markdown += f"| {policy_name} | {count:,} |\n"
+          
+          total_policy_count = sum(policies.values())
+          markdown += f"""
+          > **Note**: Each package may be blocked by multiple policies, so the total blocked packages ({blocked_total:,}) and the sum of policy counts ({total_policy_count:,}) will not match.
+          """
+          
+          # Write to job summary
+          with open('$GITHUB_STEP_SUMMARY', 'w') as f:
+              f.write(markdown)
+          EOF
+        env:
+          GITHUB_STEP_SUMMARY: ${{ github.step_summary }}
+
