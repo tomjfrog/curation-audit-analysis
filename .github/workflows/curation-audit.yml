@@ -52,28 +52,40 @@ jobs:
           
           # Read the JSON report from the output
           with open('audit-output.txt', 'r') as f:
-              lines = f.readlines()
+              content = f.read()
           
-          # Find the JSON block
+          # Find the JSON block by looking for the report structure
+          # We'll look for lines starting with '{' that contain "approved"
+          lines = content.split('\n')
           json_started = False
           json_lines = []
+          brace_count = 0
+          
           for line in lines:
-              if line.strip().startswith('{') and not json_started:
+              stripped = line.strip()
+              # Start collecting when we see a line starting with '{' that has "approved" in it
+              if stripped.startswith('{') and '"approved"' in line and not json_started:
                   json_started = True
-                  json_lines.append(line.strip())
-              elif json_started and json_lines:
-                  json_lines.append(line.strip())
-                  if line.strip() == '}' or (line.strip().endswith('}') and len(json_lines) > 1):
+                  brace_count = stripped.count('{') - stripped.count('}')
+              elif json_started:
+                  json_lines.append(line.rstrip())
+                  brace_count += stripped.count('{') - stripped.count('}')
+                  # Stop when braces are balanced
+                  if brace_count == 0 and len(json_lines) > 1:
                       break
           
           if not json_lines:
               print("No JSON report found")
+              print("Output preview:")
+              print(content[-500:])  # Show last 500 chars
               sys.exit(1)
           
           try:
-              report = json.loads('\n'.join(json_lines))
+              json_content = '\n'.join(json_lines)
+              report = json.loads(json_content)
           except json.JSONDecodeError as e:
               print(f"Failed to parse JSON: {e}")
+              print(f"JSON content: {json_content[:500]}")
               sys.exit(1)
           
           approved = report.get('approved', 0)
