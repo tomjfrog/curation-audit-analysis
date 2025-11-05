@@ -33,24 +33,16 @@ jobs:
 
       - name: Run curation audit analysis
         id: audit
+        continue-on-error: true
         env:
           JF_URL: ${{ secrets.JF_URL }}
           JF_USER: ${{ secrets.JF_USER }}
           JF_PASSWORD: ${{ secrets.JF_PASSWORD }}
         run: python main.py 2>&1 | tee audit-output.txt
 
-      - name: Debug - Show output
-        run: |
-          echo "First 100 lines of output:"
-          head -100 audit-output.txt
-          echo "---"
-          echo "Last 100 lines of output:"
-          tail -100 audit-output.txt
-          
       - name: Generate Markdown report
+        if: always()
         run: |
-          # Extract JSON report from output
-          
           # Parse JSON and generate Markdown
           python << 'EOF'
           import json
@@ -58,11 +50,35 @@ jobs:
           import sys
           
           # Read the JSON report from the output
-          with open('audit-output.txt', 'r') as f:
-              content = f.read()
+          try:
+              with open('audit-output.txt', 'r') as f:
+                  content = f.read()
+          except FileNotFoundError:
+              markdown = "# ⚠️ Audit Report\n\nError: No output file found. The script may have failed before generating output."
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
+                  f.write(markdown)
+              sys.exit(0)
+          
+          # Check for common error patterns
+          if '401' in content or 'Unauthorized' in content:
+              markdown = """# ⚠️ Audit Report Failed
+              
+          ## Error: Authentication Failed
+          
+          The script failed to authenticate with the JFrog API. Please check:
+          
+          - `JF_URL` secret is set correctly
+          - `JF_USER` secret is set correctly
+          - `JF_PASSWORD` secret is set correctly (or use an API key)
+          - The user has the "VIEW_POLICIES" permission
+          
+          See the workflow logs for more details.
+          """
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
+                  f.write(markdown)
+              sys.exit(0)
           
           # Find the JSON block by looking for the report structure
-          # We'll look for lines with '{' that contain "approved"
           lines = content.split('\n')
           json_started = False
           json_lines = []
@@ -83,18 +99,47 @@ jobs:
                       break
           
           if not json_lines:
-              print("No JSON report found")
-              print("Output preview:")
-              print(content[-500:])  # Show last 500 chars
-              sys.exit(1)
+              markdown = f"""# ⚠️ Audit Report
+              
+          ## Error: No JSON report found
+          
+          The script output did not contain a valid JSON report. This may indicate:
+          
+          - The script encountered an error before completion
+          - API authentication issues
+          - Network connectivity problems
+          
+          Please check the workflow logs for details.
+          
+          ---
+          
+          **Last 500 characters of output:**
+          ```
+          {content[-500:]}
+          ```
+          """
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
+                  f.write(markdown)
+              sys.exit(0)
           
           try:
               json_content = '\n'.join(json_lines)
               report = json.loads(json_content)
           except json.JSONDecodeError as e:
-              print(f"Failed to parse JSON: {e}")
-              print(f"JSON content: {json_content[:500]}")
-              sys.exit(1)
+              markdown = f"""# ⚠️ Audit Report
+              
+          ## Error: Failed to parse JSON
+          
+          {e}
+          
+          **JSON content (first 500 chars):**
+          ```
+          {json_content[:500]}
+          ```
+          """
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
+                  f.write(markdown)
+              sys.exit(0)
           
           approved = report.get('approved', 0)
           blocked_total = report.get('blocked', {}).get('blocked_total', 0)
@@ -125,7 +170,7 @@ jobs:
           """
           
           # Write to job summary
-          with open('$GITHUB_STEP_SUMMARY', 'w') as f:
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'w') as f:
               f.write(markdown)
           EOF
         env:
