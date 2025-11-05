@@ -17,7 +17,7 @@ def process_events(output):
     """
     # Count actions
     action_counts = Counter()
-    events = output.get('data', [])
+    events = output.get('data') or []
     
     blocked_events = []
     passed_events = []
@@ -82,17 +82,29 @@ while curr < start:
         response.raise_for_status()
         output = response.json()
         
+        # Validate response structure
+        if not isinstance(output, dict):
+            print(f"Warning: Unexpected response format: {type(output)}")
+            break
+        
+        if 'meta' not in output:
+            print(f"Warning: Response missing 'meta' field. Response: {output}")
+            break
+        
         # Process events: filter approved and count actions
         _, action_counts, batch_blocked, _ = process_events(output)
         total_action_counts.update(action_counts)
         
         # Collect blocked events for analysis
         blocked_events.extend(batch_blocked)
-        next_offset = output['meta']['next_offset']
+        
+        # Get next offset, break if no more pages
+        meta = output.get('meta', {})
+        next_offset = meta.get('next_offset')
         if not next_offset:
             break
         offset = next_offset
-        events_fetched += output['meta']['result_count']
+        events_fetched += meta.get('result_count', 0)
     curr += datetime.timedelta(days=7)
 
 
